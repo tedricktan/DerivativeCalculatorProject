@@ -1,0 +1,315 @@
+#include <iostream>
+#include <cmath>
+#include <string>
+
+using namespace std;
+
+enum TrigType {SINE, COSINE};
+
+class AbstractTerm {
+   public:
+      int value = 0;
+      virtual AbstractTerm* derivative() const = 0;
+      virtual double evaluate(double val) const = 0;
+      virtual string toString() const = 0;
+};
+
+class ConstantTerm : public AbstractTerm {
+   public:
+      ConstantTerm(int inputValue) {
+         this->value = inputValue;
+      }
+      
+      AbstractTerm* derivative() const override {
+         AbstractTerm* temp = new ConstantTerm(0);
+         return temp;
+      }
+      
+      double evaluate(double val) const override {
+         return this->value + val - val; // ? needs to use val, but unnecessary in a constant term
+      }
+      
+      string toString() const override {
+         string sign = (value >= 0) ? "+ " : "- ";
+         return sign + to_string(abs(value)) + " ";
+      }
+      
+};
+
+class LinearTerm : public ConstantTerm {
+   public:
+      AbstractTerm* linearTerm;
+      LinearTerm(int inputValue) : ConstantTerm(inputValue) {
+         linearTerm = new ConstantTerm(inputValue);
+      }
+      
+      AbstractTerm* derivative() const override {
+         AbstractTerm* temp = new ConstantTerm(this->value);
+         return temp;
+      }
+      
+      double evaluate(double val) const override {
+         return this->value * val;
+      }
+      
+      string toString() const override {
+         string sign = (value >= 0) ? "+ " : "- ";
+         return sign + to_string(abs(value)) + "x ";
+      }
+};
+
+class PolynomialTerm : public LinearTerm {
+   public:
+      PolynomialTerm(int inputValue, int exponent) : LinearTerm(inputValue) {
+         this->value = inputValue;
+         this->exponent = exponent;
+      }
+      
+      AbstractTerm* derivative() const override {
+         AbstractTerm* temp;
+         if (this->exponent == 2) {
+            temp = new LinearTerm(this->value * exponent);
+         }
+         else {
+            temp = new PolynomialTerm(this->value * this->exponent, this->exponent - 1);
+         }
+         return temp;
+      }
+      
+      double evaluate(double val) const override {
+         return value * pow(val, exponent);
+      }
+      
+      string toString() const override {
+         string sign = (value >= 0) ? "+ " : "- ";
+         if (abs(value) == 1) {
+            return sign + "x^" + to_string(exponent) + " ";
+         }
+         return sign + to_string(abs(value)) + "x^" + to_string(exponent) + " ";
+      }
+   private:
+      int exponent;   
+};    
+
+class TrigTerm : public LinearTerm {
+   public:
+      TrigType trig;
+      TrigTerm(int sign, TrigType trigValue) : LinearTerm(sign) {
+         this->value = sign;
+         this->trig = trigValue;
+      }
+      
+      AbstractTerm* derivative() const override {
+         AbstractTerm* temp;
+         if (trig == TrigType::COSINE) {
+            temp = new TrigTerm(-1 * value, TrigType::SINE);
+         } else {
+            temp = new TrigTerm(value, TrigType::COSINE);
+         }
+         return temp;
+      }
+      
+      double evaluate(double val) const override {
+         if (trig == TrigType::COSINE) {
+            return value * cos(val * (M_PI / 180));
+         } else {
+            return value * sin(val * (M_PI / 180));
+         }
+      }
+      
+      string toString() const override {
+         string toStringValue = to_string(abs(value));
+         string toStringSign = (value > 0) ? "+ " : "- ";
+         bool isBigEnough = (abs(value) > 1) ? true : false;
+         
+         if (trig == TrigType::COSINE) {
+            if (isBigEnough) {
+               return toStringSign + toStringValue + "cos(x) ";
+            } else {
+               return toStringSign + "cos(x) ";
+            }
+         } else {
+            if (isBigEnough) {
+               return toStringSign + toStringValue + "sin(x) ";
+            } else {
+               return toStringSign + "sin(x) ";
+            }
+         }
+      }
+};
+
+template<typename Type>
+struct ProjNode {
+   Type curr;
+   ProjNode<Type>* next;
+};
+
+template<typename Type>
+class ProjLinkedList {
+   public:
+      ProjNode<Type>* head;
+      ProjNode<Type>* tail;
+      int size;
+      ProjLinkedList() {
+         head = tail = nullptr;
+         size = 0;
+      }
+      
+      void add(Type inputTerm) {
+         ProjNode<Type>* termBeingAdded = new ProjNode<Type>();
+         termBeingAdded->curr = inputTerm;
+         termBeingAdded->next = nullptr;
+         
+         if (head != nullptr) {
+            termBeingAdded->next = head;
+         }
+         head = termBeingAdded; 
+         
+         size += 1;
+      }
+      
+      Type getAt(int index) {
+         ProjNode<Type>* temp = new ProjNode<Type>();
+         temp = head;
+         int count = 0;
+          
+         while (temp->next != nullptr) {
+            if (count == index) {
+               return temp->curr;
+            }
+            count += 1;
+            temp = temp->next;
+         }
+         return temp->curr; // tail
+      }
+};
+
+class Expression {
+   public:
+      ProjLinkedList<AbstractTerm*>* list;
+      Expression() {
+         list = new ProjLinkedList<AbstractTerm*>();
+      }
+      
+      ~Expression() {
+         delete list;
+      }
+      
+      Expression* operator+=(AbstractTerm* term) {
+         list->add(term);
+         Expression* expression = new Expression();
+         expression->list = this->list;
+         
+         return expression;
+      }
+      
+      Expression* getDerivative() {
+         Expression* newExpression = new Expression();
+         ProjNode<AbstractTerm*>* temp = new ProjNode<AbstractTerm*>();
+         temp = list->head;
+         
+         while (temp->next != nullptr) {
+            newExpression->list->add(temp->curr->derivative());
+            temp = temp->next;
+         }
+         newExpression->list->add(temp->curr->derivative());
+         return newExpression;
+      }
+      
+      double getEvaluation(double inputValue) {
+         double sum = 0;
+         ProjNode<AbstractTerm*>* temp = new ProjNode<AbstractTerm*>();
+         temp = list->head;
+         
+         while (temp->next != nullptr) {
+            sum += temp->curr->evaluate(inputValue);
+            temp = temp->next;
+         }
+         sum += temp->curr->evaluate(inputValue);
+         
+         return sum;
+      }
+      
+      string toString() {
+         string poly = "";
+         string linear = "";
+         string constant = "";
+         string trig = "";
+         
+         ProjNode<AbstractTerm*>* temp = new ProjNode<AbstractTerm*>();
+         temp = list->head;
+         
+         // poly, linear, constant, trig
+         string current;
+         while (temp->next != nullptr) {
+            if (temp->curr->value == 0) {
+               temp = temp->next;
+            }
+            current = temp->curr->toString();
+            if (current.find("^") < current.size()) {
+               poly += current;
+            }
+            else if (current.find("cos") < current.size() || current.find("sin") < current.size()) {
+               trig += current;
+            }
+            else if (current.find("x") < current.size()) {
+               linear += current;
+            }
+            else {
+               constant += current;
+            }
+            temp = temp->next;
+         }
+         current = temp->curr->toString();
+         if (current.find("^") < current.size()) {
+            poly += current;
+         }
+         else if (current.find("cos") < current.size() || current.find("sin") < current.size()) {
+            trig += current;
+         }
+         else if (current.find("x") < current.size()) {
+            linear += current;
+         }
+         else {
+            constant += current;
+         }
+         return poly + linear + constant + trig;
+      }
+};
+
+int main()
+{
+   AbstractTerm* t1 = new LinearTerm(5);
+   AbstractTerm* t2 = new PolynomialTerm(-4,3);
+   AbstractTerm* t3 = new TrigTerm(-6, TrigType::COSINE);
+   /*
+   cout << t1->toString() << endl; // + 5x
+   cout << t1->evaluate(5) << endl; // 25
+   cout << t2->toString() << endl; // - 4x^3
+   cout << t2->evaluate(2) << endl; // -32
+   cout << t3->toString() << endl; // - 6cos(x)
+   cout << t3->evaluate(45) << endl; // -4.24
+   
+   ProjLinkedList<AbstractTerm*>* list = new ProjLinkedList<AbstractTerm*>();
+   list->add(t1);
+   list->add(t2);
+   list->add(t3);
+   cout << list->getAt(0)->toString() << endl;
+   cout << list->getAt(1)->toString() << endl;
+   cout << list->getAt(2)->toString() << endl;
+   */
+   Expression* e1 = new Expression();
+   (*e1) += t1;
+   (*e1) += t2;
+   (*e1) += t3;
+   Expression* e2 = e1->getDerivative();
+   cout << e1->toString() << endl; // - 4x^3 + 5x - 6cos(x)
+   cout << e2->toString() << endl; // - 12x^2 + 5 + 6sin(x)
+   cout << e1->getEvaluation(0) << endl; // -6
+   cout << e2->getEvaluation(0) << endl; // 5
+   
+   delete e2;
+   delete e1;
+
+   return 0;
+}
